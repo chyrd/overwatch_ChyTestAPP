@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:ffi';
+import 'dart:io';
 
 import 'package:convert/convert.dart';
 import 'package:flutter/material.dart';
@@ -63,6 +64,24 @@ Future<void> requestNearbyPermissions() async {
   if (await Permission.location.isDenied) {
     checkLocationPermission();
   }
+  var status = await Permission.storage.status;
+  if (status.isDenied) {
+    // 權限被拒絕
+    if (await Permission.storage.request().isPermanentlyDenied) {
+      // 使用者勾選「不再詢問」後拒絕，導向到設定頁面
+      await openAppSettings();
+    } else {
+      // 權限請求失敗，提示使用者
+      // 可在此處顯示一個對話框，告知使用者權限取得失敗
+    }
+  } else if (status.isGranted) {
+    // 權限已授權
+    // 開始執行需要權限的操作
+  }
+}
+void requestStoragePermission() async {
+  // 檢查權限狀態
+
 }
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -114,6 +133,7 @@ class MyApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
+      debugShowCheckedModeBanner: false,
       title: 'Flutter Demo',
       theme: ThemeData(
         colorScheme: ColorScheme.fromSeed(seedColor: Colors.lightBlue ),
@@ -154,7 +174,9 @@ class _MyHomePageState extends State<MyHomePage> {
     // mConnectionStateUpdate = Provider.of<ConnectionStateUpdate>(context, listen: false);
     mBleScanner = Provider.of<BleScanner>(context, listen: false);
 
-  }
+    // openfile();
+    }
+
   @override
   void didUpdateWidget(MyHomePage oldwidget) {
     super.didUpdateWidget(oldwidget);

@@ -32,7 +32,7 @@ class _ConnectionTabPage extends State<ConnectionTabPage> with TickerProviderSta
   late BleDeviceInteractor mBleDeviceInteractor;
   late QualifiedCharacteristic writecharacteristic, readcharacteristic;
 
-  // late ConnectionStateUpdate mConnectionStateUpdate;
+  late ConnectionStateUpdate mConnectionStateUpdate;
   StreamSubscription<List<int>>? subscribeStream;
 
   int sensordata1_8idx = 2, metadata1_8idx = 2, status1_8idx = 2, hwperformance1_8idx = 2, hwerror1_8idx = 2;
@@ -104,18 +104,23 @@ class _ConnectionTabPage extends State<ConnectionTabPage> with TickerProviderSta
     readcharacteristic = mBleDeviceConnector.readcharacteristic;
 
     _tabController = TabController(length: 2, vsync: this);
-
+    // mBleDeviceConnector.state
     rssilooptimer = Timer.periodic(const Duration(seconds: 1), (timer) async {
-      mBleDeviceConnector.getRssi(widget.connectid).then((onValue) {
-        rssiVal = onValue;
-        setState(() {});
-      });
+      mConnectionStateUpdate = Provider.of<ConnectionStateUpdate>(context, listen: false);
+      if(mConnectionStateUpdate.connectionState == DeviceConnectionState.connected){
+        mBleDeviceConnector.getRssi(widget.connectid).then((onValue) {
+          rssiVal = onValue;
+          setState(() {});
+        });
+      }
+
     });
 
     subscribeCharacteristic();
   }
 
   Future<void> subscribeCharacteristic() async {
+
     subscribeStream = mBleDeviceConnector.readBuffStream.listen((event) async {
       // subscribeStream =
       print("meter res : ${event.toString()}");
@@ -123,254 +128,386 @@ class _ConnectionTabPage extends State<ConnectionTabPage> with TickerProviderSta
       String opCode = "${event[2]-48}-${event[3]-48}";
       print("opCode:$opCode");
       try {
-        switch (opCode) {
-          case "1-0":
-            res =
-                "mode: ${event[4] == 0x31
-                    ? "Wifi"
-                    : event[4] == 0x32
-                    ? "5G"
-                    : "Wifi"}\n"
-                "${checkinterval(0)}\n"
-                "${String.fromCharCodes(event.sublist(7, 7 + event[6]))}\n"
-                "${String.fromCharCodes(event.sublist(7 + event[6] + 1, 7 + event[6] + 1 + event[7 + event[6]]))}\n"
-                "${String.fromCharCodes(event.sublist(7 + event[6] + 1 + event[7 + event[6]], event.length - 2))}\n"
-                "";
-            break;
-          case "1-1":
-            res =
-                "mode: ${event[4] == 0x31
-                    ? "Wifi"
-                    : event[4] == 0x32
-                    ? "5G"
-                    : "Wifi"}"; //String.fromCharCodes(event.sublist(4,event.length-3));
-            break;
-          case "1-2":
-            switch (event[4]) {
-              case 0:
-                res = "OK";
-                break;
-              case 1:
-                res = "High-side pressure is working";
-                break;
-              case 2:
-                res = "Low-side pressure is working";
-                break;
-              case 3:
-                res = "No High-side pressure";
-                break;
-              case 4:
-                res = "No Low-side pressure";
-                break;
-              case 5:
-                res = "No Supply Pre Coil sensor";
-                break;
-              case 6:
-                res = "No Supply Post Coil sensor";
-                break;
-              case 7:
-                res = "No Supply Air Velocity sensor";
-                break;
-              case 8:
-                res = "No Return Pre Filter sensor";
-                break;
-              case 9:
-                res = "No Return Post Filter sensor";
-                break;
-              default:
-                res = "NaN";
+
+        ///7.10格式為全部ascii
+      if(event.length>36) {
+
+         bool isNotSync = String.fromCharCodes(event.sublist(4, 24)).contains("Not Sync to Cloud");
+        if (isDateTime(String.fromCharCodes(event.sublist(4, 24)))||isNotSync) {
+          List<dynamic> payloaddata = [];
+          print("decodeD start");
+          // var asciiPart = event.takeWhile((b) => b != 0).toList();
+          // print(String.fromCharCodes(event.sublist(24, event.length-7)));
+          var decodeD = base64.decode(String.fromCharCodes(event.sublist(24, event.length-3)));
+
+          print("decodeD LEN ${decodeD.length}, $decodeD");
+          if(isNotSync){
+            payloaddata.add("Not Sync to Cloud");
+          }else {
+            payloaddata.add(String.fromCharCodes(event.sublist(4, 24)));
+          }
+          // payloaddata.add(parseIntList(event.sublist(4, event.length-3)).text);
+          payloaddata.add(decodeD[0] << 8 | decodeD[1]); //(event.sublist(24,26) as Uint8);
+          payloaddata.add(
+              "${decodeD[2].toRadixString(16).padLeft(2, '0')}${decodeD[3].toRadixString(16).padLeft(2, '0')}${decodeD[4].toRadixString(16).padLeft(2, '0')}${decodeD[5]
+                  .toRadixString(16)
+                  .padLeft(2, '0')}");
+          for (var i = 6; i < decodeD.length; i += 2) {
+            var value  = decodeD[i] << 8 | decodeD[i + 1];
+            if (value & 0x8000 != 0) { // 如果最高位是 1
+              value = value - 0x10000;
             }
-            break;
-          case "1-3":
-            res = checkinterval(event[4]);
-            break;
-          case "1-4": //wifi setting
+            print(value);
+            payloaddata.add(value); //(event.sublist(i, i+2) as Uint8);
+          }
+          print("payloaddata LEN ${payloaddata.length}");
 
-            break;
-          case "1-5":
-            res = "timestamp: ${String.fromCharCodes(event.sublist(4, event.length - 3))}";
-            break;
-          case "1-6": //return to the default settings
-            res = " ${event[4]}";
-            break;
-          case "1-7": //return to the default settings
-            res = " ${event[4]}";
-            break;
-          case "1-8": //return to the default settings
-            res = " [${event[4]},${event[5]},${event[6]},${event[7]},${event[8]}]";
-            break;
-          case "2-0":
-            res =
-                "fw: ${event[4]}.${event[5]}.${event[6]}\n"
-                "cal: ${event[7]}${event[8]}${event[9]}${event[10]}\n"
-                "commission: ${event[11]}${event[12]}${event[13]}${event[14]}\n"
-                "Wifi Mac: ${hex.encode(event.sublist(15, 21))}\n"
-                "BLE Mac: ${hex.encode(event.sublist(21, 27))}\n"
-                "Cellular IMEI: ${hex.encode(event.sublist(27, 35))}\n"
-                "Lora Eui: ${hex.encode(event.sublist(35, 43))}\n"
-                "eSim:\n"
-                "Secret key: ${String.fromCharCodes(event.sublist(43, 59))}\n"
-                "ICC ID: ${String.fromCharCodes(event.sublist(59, 69))}\n"
-                "UPC: ${String.fromCharCodes(event.sublist(69, 91))}\n"
-                "IMSI: ${String.fromCharCodes(event.sublist(91, 99))}\n"
-                "UPC: ${String.fromCharCodes(event.sublist(69, 91))}\n"
-                "MCU Speed: ${event[91]}\n"
-                "Flash Memory: ${event[92] << 24 | event[93] << 16 | event[94] << 8 | event[95]}\n";
-            break;
-          case "2-1": //return to the default settings
-            res = "calibration: ${byteToHexString(event.sublist(4, event.length - 3))}";
-            break;
-          case "2-2": //return to the default settings
-            res = "commisson: ${byteToHexString(event.sublist(4, event.length - 3))}";
-            break;
-          case "3-0": //return to the default settings
-            res = "forward: ${String.fromCharCodes(event.sublist(4, event.length - 3))}";
-            break;
-          case "3-1": //return to the default settings
-            res = "getdata: ${String.fromCharCodes(event.sublist(4, event.length - 3))}";
-            break;
-          case "4-0":
-          case "5-0":
-            var eplen = event[4]-48;
-            var tplen = event[event[4]-48 + 5]-48;
+          if (payloaddata.length == 18) {
+            _jsonLogObj.insert(0, {
+              "MT": payloaddata[0],
+              "IU": payloaddata[1],
+              "IUSN": payloaddata[2],
+              "IUOT": payloaddata[3] / 10,
+              "IUORH": payloaddata[4] / 10,
+              "IUOP": payloaddata[5],
+              "IUPV": payloaddata[6] / 10,
+              "IUBC": payloaddata[7] / 10,
+              "IUIC": payloaddata[8] / 10,
+              "IUPRCSP": payloaddata[9] / 1000,
+              "IUPOSP": payloaddata[10] / 1000,
+              "IUSAV": payloaddata[11],
+              "IUST": payloaddata[12] / 10,
+              "IUSRH": payloaddata[13] / 10,
+              "IUPRFSP": payloaddata[14] / 1000,
+              "IUPOFSP": payloaddata[15] / 1000,
+              "IUSRT": payloaddata[16] / 10,
+              "IUSRRH": payloaddata[17] / 10,
+            });
+          } else if (payloaddata.length == 17) {
+            _jsonLogObj.insert(0, {
+              "MT": payloaddata[0],
+              "OU": payloaddata[1],
+              "OUSN": payloaddata[2],
+              "OUOT": payloaddata[3] / 10,
+              "OUORH": payloaddata[4] / 10,
+              "OUOP": payloaddata[5],
+              "OUPV": payloaddata[6] / 10,
+              "OUFC": payloaddata[7] / 10,
+              "OUCC": payloaddata[8] / 10,
+              "OUACT": payloaddata[9] / 10,
+              "OUARH": payloaddata[10] / 10,
+              "OUTCT": payloaddata[11] / 10,
+              "OUTRH": payloaddata[12] / 10,
+              "OURHPT": payloaddata[13] / 10,
+              "OURLPT": payloaddata[14] / 10,
+              "OURHP": payloaddata[15] / 10,
+              "OURLP": payloaddata[16] / 10,
+            });
+          } else if (payloaddata.length == 28) {
+            _jsonLogObj.insert(0, {
+              "MT": payloaddata[0],
+              "CU": payloaddata[1],
+              "CUSN": payloaddata[2],
+              "CUOT": payloaddata[3] / 10,
+              "CUORH": payloaddata[4] / 10,
+              "CUOP": payloaddata[5],
+              "CUPV": payloaddata[6] / 10,
+              "CUBC": payloaddata[7] / 10,
+              "CUIC": payloaddata[8] / 10,
+              "CUPRCSP": payloaddata[9] / 1000,
+              "CUPOSP": payloaddata[10] / 1000,
+              "CUSAV": payloaddata[11],
+              "CUST": payloaddata[12] / 10,
+              "CUSRH": payloaddata[13] / 10,
+              "CUPRFSP": payloaddata[14] / 1000,
+              "CUPOFSP": payloaddata[15] / 1000,
+              "CUSRT": payloaddata[16] / 10,
+              "CUSRRH": payloaddata[17] / 10,
+              "CUFC": payloaddata[18] / 10,
+              "CUCC": payloaddata[19] / 10,
+              "CUACT": payloaddata[20] / 10,
+              "CUARH": payloaddata[21] / 10,
+              "CUTCT": payloaddata[22] / 10,
+              "CUTRH": payloaddata[23] / 10,
+              "CURHPT": payloaddata[24] / 10,
+              "CURLPT": payloaddata[25] / 10,
+              "CURHP": payloaddata[26] / 10,
+              "CURLP": payloaddata[27] / 10,
+            });
+          }
 
-            // print("ep---: ${String.fromCharCodes(event.sublist(5, event.length))}");
 
-            String text = String.fromCharCodes(event.sublist(4, event.length));
-           var  resbuf = text.split(RegExp(r'\r?\n')).where((s) => s.isNotEmpty).toList();
-            print(resbuf);
-            res= "";
 
-            for (var e in resbuf) {
-              res+="$e\n";
+            if (decodeD.length > 31) {
+              // res =_jsonLogObj[0].toString();
+              res = String.fromCharCodes(event.sublist(4, event.length-3));
+
+              writeFile(_jsonLogObj[0].toString());
             }
-                // res =
-                // "endpoint: ${String.fromCharCodes(event.sublist(5, 5 + eplen))}\n"
-                // "topic: ${String.fromCharCodes(event.sublist(5 + eplen + 1, eplen + 5 + 1 + tplen))}\n"
-                // "s/n:${String.fromCharCodes(event.sublist(eplen + 5 + 1 + tplen, eplen + 5 + 1 + tplen + 4))}\n"
-                // "manufacturing date: ${String.fromCharCodes(event.sublist(eplen + 5 + 1 + tplen + 4, eplen + 5 + 1 + tplen + 4 + 4))}";
-            break;
-          case "5-1":
-            res = "endpoint: ${String.fromCharCodes(event.sublist(4, event.length - 3))}";
-            break;
-          case "5-2":
-            res = "topic: ${String.fromCharCodes(event.sublist(4, event.length - 3))}";
-            break;
-          case "5-3":
-            res = "SN: ${byteToHexString(event.sublist(4, event.length - 3))}";
-            break;
-          case "5-4":
-            res = "topic: ${byteToHexString(event.sublist(4, event.length - 3))}";
-            break;
-          default:
-            var nowtimt = DateTime.now();
-            res = "${nowtimt.hour}:${nowtimt.minute}:${nowtimt.second}-other: ${String.fromCharCodes(event.sublist(4, event.length - 3))}";
-            print("opCode:$opCode");
-            if(event.length>30) {
-              List<dynamic> payloaddata = [];
 
 
-              var decodeD = base64.decode(String.fromCharCodes(event.sublist(24, event.length)));
-
-
-              if(isDateTime(String.fromCharCodes(event.sublist(0, 24)))) {
-                print("decodeD LEN ${decodeD.length}, $decodeD");
-                payloaddata.add(String.fromCharCodes(event.sublist(0, 24)));
-                payloaddata.add(decodeD[0] << 8 | decodeD[1]); //(event.sublist(24,26) as Uint8);
-                payloaddata.add(
-                    "${decodeD[2].toRadixString(16).padLeft(2, '0')}${decodeD[3].toRadixString(16).padLeft(2, '0')}${decodeD[4].toRadixString(16).padLeft(2, '0')}${decodeD[5]
-                        .toRadixString(16)
-                        .padLeft(2, '0')}");
-                for (var i = 6; i < decodeD.length; i += 2) {
-                  print(decodeD[i] << 8 | decodeD[i + 1]);
-                  payloaddata.add(decodeD[i] << 8 | decodeD[i + 1]); //(event.sublist(i, i+2) as Uint8);
-                }
-                print("payloaddata LEN ${payloaddata.length}");
-
-                if (payloaddata.length == 18) {
-                  _jsonLogObj.insert(0, {
-                    "MT": payloaddata[0],
-                    "IU": payloaddata[1],
-                    "IUSN": payloaddata[2],
-                    "IUOT": payloaddata[3] / 10,
-                    "IUORH": payloaddata[4] / 10,
-                    "IUOP": payloaddata[5],
-                    "IUPV": payloaddata[6] / 10,
-                    "IUBC": payloaddata[7] / 10,
-                    "IUIC": payloaddata[8] / 10,
-                    "IUPRCSP": payloaddata[9] / 1000,
-                    "IUPOSP": payloaddata[10] / 1000,
-                    "IUSAV": payloaddata[11],
-                    "IUST": payloaddata[12] / 10,
-                    "IUSRH": payloaddata[13] / 10,
-                    "IUPRFSP": payloaddata[14] / 1000,
-                    "IUPOFSP": payloaddata[15] / 1000,
-                    "IUSRT": payloaddata[16] / 10,
-                    "IUSRRH": payloaddata[17] / 10,
-                  });
-                } else if (payloaddata.length == 17) {
-                  _jsonLogObj.insert(0, {
-                    "MT": payloaddata[0],
-                    "OU": payloaddata[1],
-                    "OUSN": payloaddata[2],
-                    "OUOT": payloaddata[3] / 10,
-                    "OUORH": payloaddata[4] / 10,
-                    "OUOP": payloaddata[5],
-                    "OUPV": payloaddata[6] / 10,
-                    "OUFC": payloaddata[7] / 10,
-                    "OUCC": payloaddata[8] / 10,
-                    "OUACT": payloaddata[9] / 10,
-                    "OUARH": payloaddata[10] / 10,
-                    "OUTCT": payloaddata[11] / 10,
-                    "OURHPT": payloaddata[12] / 10,
-                    "OURLPT": payloaddata[13] / 10,
-                    "OURHP": payloaddata[14] / 10,
-                    "OURLP": payloaddata[15] / 10,
-                  });
-                } else if (payloaddata.length == 28) {
-                  _jsonLogObj.insert(0, {
-                    "MT": payloaddata[0],
-                    "CU": payloaddata[1],
-                    "CUSN": payloaddata[2],
-                    "CUOT": payloaddata[3] / 10,
-                    "CUORH": payloaddata[4] / 10,
-                    "CUOP": payloaddata[5],
-                    "CUPV": payloaddata[6] / 10,
-                    "CUBC": payloaddata[7] / 10,
-                    "CUIC": payloaddata[8] / 10,
-                    "CUPRCSP": payloaddata[9] / 1000,
-                    "CUPOSP": payloaddata[10] / 1000,
-                    "CUSAV": payloaddata[11],
-                    "CUST": payloaddata[12] / 10,
-                    "CUSRH": payloaddata[13] / 10,
-                    "CUPRFSP": payloaddata[14] / 1000,
-                    "CUPOFSP": payloaddata[15] / 1000,
-                    "CUSRT": payloaddata[16] / 10,
-                    "CUSRRH": payloaddata[17] / 10,
-                    "CUFC": payloaddata[18] / 10,
-                    "CUCC": payloaddata[19] / 10,
-                    "CUACT": payloaddata[20] / 10,
-                    "CUARH": payloaddata[21] / 10,
-                    "CUTCT": payloaddata[22] / 10,
-                    "CUTRH": payloaddata[23] / 10,
-                    "CURHPT": payloaddata[24] / 10,
-                    "CURLPT": payloaddata[25] / 10,
-                    "CURHP": payloaddata[26] / 10,
-                    "CURLP": payloaddata[27] / 10,
-                  });
-                }
-                if (decodeD.length > 60) {
-                  writeFile(_jsonLogObj[0].toString());
-                }
-                if (_jsonLogObj.length > 100) {
-                  _jsonLogObj.removeLast();
-                }
-              }
-            }
-            break;
+          if (_jsonLogObj.length > 100) {
+            _jsonLogObj.removeLast();
+          }
+        } else {
+          res = String.fromCharCodes(event.sublist(4, event.length-3));
+          // res = parseIntList(event.sublist(4, event.length-3)).text;
         }
+      }else {
+        // res = parseIntList(event.sublist(4, event.length-3)).text;
+        res = String.fromCharCodes(event.sublist(4, event.length-3));
+      }
+
+///7.9格式依照封包解析
+        // switch (opCode) {
+        //   case "1-0":
+        //     res =
+        //         "mode: ${event[4] == 0x31
+        //             ? "Wifi"
+        //             : event[4] == 0x32
+        //             ? "5G"
+        //             : "Wifi"}\n"
+        //         "${checkinterval(0)}\n"
+        //         "${String.fromCharCodes(event.sublist(7, 7 + event[6]))}\n"
+        //         "${String.fromCharCodes(event.sublist(7 + event[6] + 1, 7 + event[6] + 1 + event[7 + event[6]]))}\n"
+        //         "${String.fromCharCodes(event.sublist(7 + event[6] + 1 + event[7 + event[6]], event.length - 2))}\n"
+        //         "";
+        //     break;
+        //   case "1-1":
+        //     res =
+        //         "mode: ${event[4] == 0x31
+        //             ? "Wifi"
+        //             : event[4] == 0x32
+        //             ? "5G"
+        //             : "Wifi"}"; //String.fromCharCodes(event.sublist(4,event.length-3));
+        //     break;
+        //   case "1-2":
+        //     switch (event[4]) {
+        //       case 0:
+        //         res = "OK";
+        //         break;
+        //       case 1:
+        //         res = "High-side pressure is working";
+        //         break;
+        //       case 2:
+        //         res = "Low-side pressure is working";
+        //         break;
+        //       case 3:
+        //         res = "No High-side pressure";
+        //         break;
+        //       case 4:
+        //         res = "No Low-side pressure";
+        //         break;
+        //       case 5:
+        //         res = "No Supply Pre Coil sensor";
+        //         break;
+        //       case 6:
+        //         res = "No Supply Post Coil sensor";
+        //         break;
+        //       case 7:
+        //         res = "No Supply Air Velocity sensor";
+        //         break;
+        //       case 8:
+        //         res = "No Return Pre Filter sensor";
+        //         break;
+        //       case 9:
+        //         res = "No Return Post Filter sensor";
+        //         break;
+        //       default:
+        //         res = "NaN";
+        //     }
+        //     break;
+        //   case "1-3":
+        //     res = checkinterval(event[4]);
+        //     break;
+        //   case "1-4": //wifi setting
+        //
+        //     break;
+        //   case "1-5":
+        //     res = "timestamp: ${String.fromCharCodes(event.sublist(4, event.length - 3))}";
+        //     break;
+        //   case "1-6": //return to the default settings
+        //     res = " ${event[4]}";
+        //     break;
+        //   case "1-7": //return to the default settings
+        //     res = " ${event[4]}";
+        //     break;
+        //   case "1-8": //return to the default settings
+        //     res = " [${event[4]},${event[5]},${event[6]},${event[7]},${event[8]}]";
+        //     break;
+        //   case "2-0":
+        //     res =
+        //         "fw: ${event[4]}.${event[5]}.${event[6]}\n"
+        //         "cal: ${event[7]}${event[8]}${event[9]}${event[10]}\n"
+        //         "commission: ${event[11]}${event[12]}${event[13]}${event[14]}\n"
+        //         "Wifi Mac: ${hex.encode(event.sublist(15, 21))}\n"
+        //         "BLE Mac: ${hex.encode(event.sublist(21, 27))}\n"
+        //         "Cellular IMEI: ${hex.encode(event.sublist(27, 35))}\n"
+        //         "Lora Eui: ${hex.encode(event.sublist(35, 43))}\n"
+        //         "eSim:\n"
+        //         "Secret key: ${String.fromCharCodes(event.sublist(43, 59))}\n"
+        //         "ICC ID: ${String.fromCharCodes(event.sublist(59, 69))}\n"
+        //         "UPC: ${String.fromCharCodes(event.sublist(69, 91))}\n"
+        //         "IMSI: ${String.fromCharCodes(event.sublist(91, 99))}\n"
+        //         "UPC: ${String.fromCharCodes(event.sublist(69, 91))}\n"
+        //         "MCU Speed: ${event[91]}\n"
+        //         "Flash Memory: ${event[92] << 24 | event[93] << 16 | event[94] << 8 | event[95]}\n";
+        //     break;
+        //   case "2-1": //return to the default settings
+        //     res = "calibration: ${byteToHexString(event.sublist(4, event.length - 3))}";
+        //     break;
+        //   case "2-2": //return to the default settings
+        //     res = "commisson: ${byteToHexString(event.sublist(4, event.length - 3))}";
+        //     break;
+        //   case "3-0": //return to the default settings
+        //     res = "forward: ${String.fromCharCodes(event.sublist(4, event.length - 3))}";
+        //     break;
+        //   case "3-1": //return to the default settings
+        //     res = "getdata: ${String.fromCharCodes(event.sublist(4, event.length - 3))}";
+        //     break;
+        //   case "4-0":
+        //   case "5-0":
+        //     var eplen = event[4]-48;
+        //     var tplen = event[event[4]-48 + 5]-48;
+        //
+        //     // print("ep---: ${String.fromCharCodes(event.sublist(5, event.length))}");
+        //
+        //     String text = String.fromCharCodes(event.sublist(4, event.length));
+        //    var  resbuf = text.split(RegExp(r'\r?\n')).where((s) => s.isNotEmpty).toList();
+        //     print(resbuf);
+        //     res= "";
+        //
+        //     for (var e in resbuf) {
+        //       res+="$e\n";
+        //     }
+        //         // res =
+        //         // "endpoint: ${String.fromCharCodes(event.sublist(5, 5 + eplen))}\n"
+        //         // "topic: ${String.fromCharCodes(event.sublist(5 + eplen + 1, eplen + 5 + 1 + tplen))}\n"
+        //         // "s/n:${String.fromCharCodes(event.sublist(eplen + 5 + 1 + tplen, eplen + 5 + 1 + tplen + 4))}\n"
+        //         // "manufacturing date: ${String.fromCharCodes(event.sublist(eplen + 5 + 1 + tplen + 4, eplen + 5 + 1 + tplen + 4 + 4))}";
+        //     break;
+        //   case "5-1":
+        //     res = "endpoint: ${String.fromCharCodes(event.sublist(4, event.length - 3))}";
+        //     break;
+        //   case "5-2":
+        //     res = "topic: ${String.fromCharCodes(event.sublist(4, event.length - 3))}";
+        //     break;
+        //   case "5-3":
+        //     res = "SN: ${byteToHexString(event.sublist(4, event.length - 3))}";
+        //     break;
+        //   case "5-4":
+        //     res = "topic: ${byteToHexString(event.sublist(4, event.length - 3))}";
+        //     break;
+        //   default:
+        //     var nowtimt = DateTime.now();
+        //     res = "${nowtimt.hour}:${nowtimt.minute}:${nowtimt.second}-other: ${String.fromCharCodes(event.sublist(4, event.length - 3))}";
+        //     print("opCode:$opCode");
+        //     if(event.length>30) {
+        //       List<dynamic> payloaddata = [];
+        //
+        //
+        //       var decodeD = base64.decode(String.fromCharCodes(event.sublist(24, event.length)));
+        //
+        //
+        //       if(isDateTime(String.fromCharCodes(event.sublist(0, 24)))) {
+        //         print("decodeD LEN ${decodeD.length}, $decodeD");
+        //         payloaddata.add(String.fromCharCodes(event.sublist(0, 24)));
+        //         payloaddata.add(decodeD[0] << 8 | decodeD[1]); //(event.sublist(24,26) as Uint8);
+        //         payloaddata.add(
+        //             "${decodeD[2].toRadixString(16).padLeft(2, '0')}${decodeD[3].toRadixString(16).padLeft(2, '0')}${decodeD[4].toRadixString(16).padLeft(2, '0')}${decodeD[5]
+        //                 .toRadixString(16)
+        //                 .padLeft(2, '0')}");
+        //         for (var i = 6; i < decodeD.length; i += 2) {
+        //           print(decodeD[i] << 8 | decodeD[i + 1]);
+        //           payloaddata.add(decodeD[i] << 8 | decodeD[i + 1]); //(event.sublist(i, i+2) as Uint8);
+        //         }
+        //         print("payloaddata LEN ${payloaddata.length}");
+        //
+        //         if (payloaddata.length == 18) {
+        //           _jsonLogObj.insert(0, {
+        //             "MT": payloaddata[0],
+        //             "IU": payloaddata[1],
+        //             "IUSN": payloaddata[2],
+        //             "IUOT": payloaddata[3] / 10,
+        //             "IUORH": payloaddata[4] / 10,
+        //             "IUOP": payloaddata[5],
+        //             "IUPV": payloaddata[6] / 10,
+        //             "IUBC": payloaddata[7] / 10,
+        //             "IUIC": payloaddata[8] / 10,
+        //             "IUPRCSP": payloaddata[9] / 1000,
+        //             "IUPOSP": payloaddata[10] / 1000,
+        //             "IUSAV": payloaddata[11],
+        //             "IUST": payloaddata[12] / 10,
+        //             "IUSRH": payloaddata[13] / 10,
+        //             "IUPRFSP": payloaddata[14] / 1000,
+        //             "IUPOFSP": payloaddata[15] / 1000,
+        //             "IUSRT": payloaddata[16] / 10,
+        //             "IUSRRH": payloaddata[17] / 10,
+        //           });
+        //         } else if (payloaddata.length == 17) {
+        //           _jsonLogObj.insert(0, {
+        //             "MT": payloaddata[0],
+        //             "OU": payloaddata[1],
+        //             "OUSN": payloaddata[2],
+        //             "OUOT": payloaddata[3] / 10,
+        //             "OUORH": payloaddata[4] / 10,
+        //             "OUOP": payloaddata[5],
+        //             "OUPV": payloaddata[6] / 10,
+        //             "OUFC": payloaddata[7] / 10,
+        //             "OUCC": payloaddata[8] / 10,
+        //             "OUACT": payloaddata[9] / 10,
+        //             "OUARH": payloaddata[10] / 10,
+        //             "OUTCT": payloaddata[11] / 10,
+        //             "OURHPT": payloaddata[12] / 10,
+        //             "OURLPT": payloaddata[13] / 10,
+        //             "OURHP": payloaddata[14] / 10,
+        //             "OURLP": payloaddata[15] / 10,
+        //           });
+        //         } else if (payloaddata.length == 28) {
+        //           _jsonLogObj.insert(0, {
+        //             "MT": payloaddata[0],
+        //             "CU": payloaddata[1],
+        //             "CUSN": payloaddata[2],
+        //             "CUOT": payloaddata[3] / 10,
+        //             "CUORH": payloaddata[4] / 10,
+        //             "CUOP": payloaddata[5],
+        //             "CUPV": payloaddata[6] / 10,
+        //             "CUBC": payloaddata[7] / 10,
+        //             "CUIC": payloaddata[8] / 10,
+        //             "CUPRCSP": payloaddata[9] / 1000,
+        //             "CUPOSP": payloaddata[10] / 1000,
+        //             "CUSAV": payloaddata[11],
+        //             "CUST": payloaddata[12] / 10,
+        //             "CUSRH": payloaddata[13] / 10,
+        //             "CUPRFSP": payloaddata[14] / 1000,
+        //             "CUPOFSP": payloaddata[15] / 1000,
+        //             "CUSRT": payloaddata[16] / 10,
+        //             "CUSRRH": payloaddata[17] / 10,
+        //             "CUFC": payloaddata[18] / 10,
+        //             "CUCC": payloaddata[19] / 10,
+        //             "CUACT": payloaddata[20] / 10,
+        //             "CUARH": payloaddata[21] / 10,
+        //             "CUTCT": payloaddata[22] / 10,
+        //             "CUTRH": payloaddata[23] / 10,
+        //             "CURHPT": payloaddata[24] / 10,
+        //             "CURLPT": payloaddata[25] / 10,
+        //             "CURHP": payloaddata[26] / 10,
+        //             "CURLP": payloaddata[27] / 10,
+        //           });
+        //         }
+        //         if (decodeD.length > 60) {
+        //           writeFile(_jsonLogObj[0].toString());
+        //         }
+        //         if (_jsonLogObj.length > 100) {
+        //           _jsonLogObj.removeLast();
+        //         }
+        //       }
+        //     }
+        //     break;
+        // }
       } catch (e) {
         res = e.toString();
+        print("err: $res");
       }
       readBuffer.insert(0, res);
       if (readBuffer.length > 10000) {
@@ -379,15 +516,58 @@ class _ConnectionTabPage extends State<ConnectionTabPage> with TickerProviderSta
       setState(() {});
     });
   }
-  final dir = Directory('/storage/emulated/0/Download');
-  Future<void> writeFile(String str) async {
-    // final dir = await getDownloadsDirectory();
 
-    final file = File('${dir.path}/ov_Log.txt');
-    int len = await file.length();
-    await file.writeAsString(mode: FileMode.append, len>0?",$str":str);
+  ParsedStringResult parseIntList(List<int> bytes) {
+    // 1️⃣ 轉成字串
+    String text = String.fromCharCodes(bytes);
 
+    // 2️⃣ 用正規抓出所有數字（含負號）
+    final regex = RegExp(r'-?\d+');
+    final numbers = regex
+        .allMatches(text)
+        .map((m) => int.parse(m.group(0)!))
+        .toList();
+
+    // 3️⃣ 判斷是否有負數
+    bool hasNegative = numbers.any((n) => n < 0);
+
+    return ParsedStringResult(
+      text: text,
+      numbers: numbers,
+      hasNegative: hasNegative,
+    );
   }
+
+  // final dir = Directory('/storage/emulated/0/Download');
+  Future<void> writeFile(String str) async {
+    final dir = Directory('/storage/emulated/0/Download');
+    // print('📁 檔案路徑: ${dir.path}');
+    // await Directory(dir.path).create(recursive: true);
+    //
+    // final file = File('${dir.path}/test.txt');
+    //
+    //
+    // int len = await file.length();
+    // print("write ok ${len}");
+    // await file.writeAsString(mode: FileMode.append, len>0?",$str":str);
+    try {
+      // final dir = await getApplicationDocumentsDirectory();
+      print('📁 檔案路徑: ${dir.path}');
+      await Directory(dir.path).create(recursive: true);
+
+      var nowDate = DateTime.now();
+      final file = File('${dir.path}/ov_log.txt');
+      // final file = File('${dir.path}/ov_log_${nowDate.day}${nowDate.hour}.txt');
+      // int len = await file.length();
+      await file.writeAsString(mode: FileMode.append, "$str,");
+      print('✅ 寫入成功: ${file.path}');
+      print('檔案存在嗎？${await file.exists()}');
+    } catch (e, st) {
+      print('❌ 錯誤: $e');
+      print(st);
+    }
+  }
+
   Timer rssilooptimer = Timer.periodic(const Duration(seconds: 1), (timer) {});
 
   @override
@@ -1122,12 +1302,12 @@ class _ConnectionTabPage extends State<ConnectionTabPage> with TickerProviderSta
                             ),
                           ),
 
-                          ElevatedButton(
-                            onPressed: (() {
-                              mBleDeviceInteractor.writeCharacterisiticWithResponse(writecharacteristic, _cmdToBLE(6, 1, [0]));
-                            }),
-                            child: Text("6.1 undefined command"),
-                          ),
+                          // ElevatedButton(
+                          //   onPressed: (() {
+                          //     mBleDeviceInteractor.writeCharacterisiticWithResponse(writecharacteristic, _cmdToBLE(6, 1, [0]));
+                          //   }),
+                          //   child: Text("6.1 undefined command"),
+                          // ),
 
                           // Row(children: [
                           //   ElevatedButton(onPressed: ((){mBleDeviceInteractor.writeCharacterisiticWithResponse(writecharacteristic,_cmdToBLE(6, 2, []));}), child: Text("get fw")),
@@ -1251,9 +1431,24 @@ String byteToHexString(buf) {
 }
 bool isDateTime(String text) {
   try {
+
+    print("isDateTime ${text.replaceFirst("T", " ")}");
     DateTime.parse(text);
     return true;
   } catch (e) {
+    print("isDateTime false");
     return false;
   }
+}
+
+class ParsedStringResult {
+  final String text;       // 轉回的字串
+  final List<int> numbers; // 字串裡抓到的所有數字
+  final bool hasNegative;  // 是否有負數
+
+  ParsedStringResult({
+    required this.text,
+    required this.numbers,
+    required this.hasNegative,
+  });
 }

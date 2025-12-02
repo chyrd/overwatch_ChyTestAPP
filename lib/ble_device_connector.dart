@@ -41,34 +41,35 @@ class BleDeviceConnector extends ReactiveState<ConnectionStateUpdate> {
             (update) async{
           /// 連線後直接訂閱RX的UUID， meter TX/RX UUID都一樣
           if (update.connectionState == DeviceConnectionState.connected) {
-
+            await Future.delayed(Duration(seconds: 5)); // 避免 bonding 過程
             // await _ble.requestConnectionPriority(
             //   deviceId: deviceId,
             //   priority: ConnectionPriority.balanced,//預設已經是平衡狀態
             // );
             try {
               _ble.discoverAllServices(deviceId);
+              readcharacteristic = QualifiedCharacteristic(
+                  characteristicId: Uuid.parse(READ_CLIENT_CHARACTERISTIC_CONNECT_UUID),
+                  serviceId: Uuid.parse(CLIENT_CHARACTERISTIC_SERVICE_UUID),
+                  deviceId: deviceId.toString());
+              writecharacteristic = QualifiedCharacteristic(
+                  characteristicId: Uuid.parse(SEND_CLIENT_CHARACTERISTIC_CONNECT_UUID),
+                  serviceId: Uuid.parse(CLIENT_CHARACTERISTIC_SERVICE_UUID),
+                  deviceId: deviceId.toString());
+              readBuffStream = _ble.subscribeToCharacteristic(readcharacteristic).asBroadcastStream();
+              //print("get uuid $writecharacteristic");
+              _deviceConnectionController.add(update);
             } on PlatformException catch (e) {
               print("Failed to call platform method: '${e.message}'");
             }catch (c){
               print("_ble.discoverAllServices err: '${c.toString()}'");
             }
 
-            readcharacteristic = QualifiedCharacteristic(
-                characteristicId: Uuid.parse(READ_CLIENT_CHARACTERISTIC_CONNECT_UUID),
-                serviceId: Uuid.parse(CLIENT_CHARACTERISTIC_SERVICE_UUID),
-                deviceId: deviceId.toString());
-            writecharacteristic = QualifiedCharacteristic(
-                characteristicId: Uuid.parse(SEND_CLIENT_CHARACTERISTIC_CONNECT_UUID),
-                serviceId: Uuid.parse(CLIENT_CHARACTERISTIC_SERVICE_UUID),
-                deviceId: deviceId.toString());
-            readBuffStream = _ble.subscribeToCharacteristic(readcharacteristic).asBroadcastStream();
-            //print("get uuid $writecharacteristic");
-            // _deviceConnectionController.add(update);
+
           }else if (update.connectionState == DeviceConnectionState.disconnected) {
             // _deviceConnectionController.add(update);
           }
-          _deviceConnectionController.add(update);
+          // _deviceConnectionController.add(update);
         },
         onError: (Object e) =>
         { print("connect onError: '${e.toString()}'")}
@@ -97,8 +98,15 @@ class BleDeviceConnector extends ReactiveState<ConnectionStateUpdate> {
   Future<void> dispose() async {
     await _deviceConnectionController.close();
   }
-  Future<int> getRssi(rssi)  {
-    return  _ble.readRssi(rssi);
+  Future<int> getRssi(rssi)  async {
+    var rssival =0;
+    try {
+      //rssival = await _ble.readRssi(rssi);
+
+    }catch(ex){
+      print("connect issue ");
+    }
+    return  rssival;//_ble.readRssi(rssi);
   }
   Future<int> setMtu(id,val)  async {
     final mtu = await _ble.requestMtu(deviceId: id, mtu: val);
