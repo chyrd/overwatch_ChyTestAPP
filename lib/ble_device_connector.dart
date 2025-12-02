@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_reactive_ble/flutter_reactive_ble.dart';
 
 import '../reactive_state.dart';
+import 'Android_Method/bonding_service.dart';
 import 'ble_UUID.dart';
 
 class BleDeviceConnector extends ReactiveState<ConnectionStateUpdate> {
@@ -33,6 +34,27 @@ class BleDeviceConnector extends ReactiveState<ConnectionStateUpdate> {
     // _connection.isPaused;
     // _connection.cancel();
 
+    final bondingStream = bondingService.bondStateStream(deviceId);
+
+    bool bondingNeeded = false;
+    final bondingSubscription = bondingService.bondStateStream(deviceId).listen((state) {
+      print("Bond State: $state");
+
+      if (state == BondState.bonding) {
+        bondingNeeded = true;
+        print("設備需要配對！");
+      }
+      if (state == BondState.bonded) {
+        print("配對完成！");
+        bondingNeeded = false;
+      }
+
+
+    });
+    try {
+      await _connection.cancel();
+    } catch (_) {}
+
     _connection = _ble.connectToDevice(id: deviceId,servicesWithCharacteristicsToDiscover:
     {Uuid.parse(CLIENT_CHARACTERISTIC_SERVICE_UUID):
     [Uuid.parse(READ_CLIENT_CHARACTERISTIC_CONNECT_UUID),
@@ -40,8 +62,20 @@ class BleDeviceConnector extends ReactiveState<ConnectionStateUpdate> {
       connectionTimeout: const Duration(seconds: 15),).listen (
             (update) async{
           /// 連線後直接訂閱RX的UUID， meter TX/RX UUID都一樣
+
+
           if (update.connectionState == DeviceConnectionState.connected) {
-            await Future.delayed(Duration(seconds: 5)); // 避免 bonding 過程
+            // 等 1 秒看看設備會不會觸發 bonding
+            await Future.delayed(Duration(milliseconds: 1000));
+
+            if (bondingNeeded) {
+              print("正在等待配對完成…");
+              // 5. 若需要配對 → 等 bonded
+              await bondingStream.firstWhere((s) => s == BondState.bonded);
+              print("配對完成，開始 discover services");
+            } else {
+              print("設備不需要配對，直接 discover services");
+            }
             // await _ble.requestConnectionPriority(
             //   deviceId: deviceId,
             //   priority: ConnectionPriority.balanced,//預設已經是平衡狀態
@@ -65,6 +99,7 @@ class BleDeviceConnector extends ReactiveState<ConnectionStateUpdate> {
               print("_ble.discoverAllServices err: '${c.toString()}'");
             }
 
+            bondingSubscription.cancel();
 
           }else if (update.connectionState == DeviceConnectionState.disconnected) {
             // _deviceConnectionController.add(update);
@@ -101,7 +136,7 @@ class BleDeviceConnector extends ReactiveState<ConnectionStateUpdate> {
   Future<int> getRssi(rssi)  async {
     var rssival =0;
     try {
-      //rssival = await _ble.readRssi(rssi);
+      rssival = await _ble.readRssi(rssi);
 
     }catch(ex){
       print("connect issue ");
