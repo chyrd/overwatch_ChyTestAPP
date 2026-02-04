@@ -18,6 +18,19 @@ import 'ble_device_interactor.dart';
 import 'ble_scanner.dart';
 import 'ble_status_monitor.dart';
 import 'package:geolocator/geolocator.dart';
+class GpsProvider with ChangeNotifier {
+  bool _isHighAccuracy = false;
+  bool get isHighAccuracy => _isHighAccuracy;
+
+  Future<void> checkAccuracyStatus() async {
+    // 檢查 iOS 14+ 或 Android 的定位精確度狀態
+    LocationAccuracyStatus status = await Geolocator.getLocationAccuracy();
+    _isHighAccuracy = (status == LocationAccuracyStatus.precise);
+
+    // 核心：必須調用此方法，Consumer 才會接收到通知並刷新 UI
+    notifyListeners();
+  }
+}
 
 Future<void> checkLocationPermission() async {
   bool serviceEnabled;
@@ -92,6 +105,7 @@ void main() async {
   final _connector = BleDeviceConnector(ble: ble);
   final monitor = BleStatusMonitor(ble);
 
+
   final _serviceDiscoverer = BleDeviceInteractor(
     bleDiscoverServices: ble.discoverServices,
     readCharacteristic: ble.readCharacteristic,
@@ -123,6 +137,7 @@ void main() async {
       create: (_) => monitor.state,
       initialData: BleStatus.unknown,
     ),
+    ChangeNotifierProvider(create: (_) => GpsProvider()),
   ], child: const MyApp()));
 }
 
@@ -194,6 +209,8 @@ class _MyHomePageState extends State<MyHomePage> {
     print("Probe dispose");
   }
 
+
+
   int filteridx = 0;
   List<String> _markupFilter = [];
   BleStatus mBLEStat = BleStatus.unknown;
@@ -204,8 +221,8 @@ class _MyHomePageState extends State<MyHomePage> {
 
   var stat = DeviceConnectionState.disconnected;
   @override
-  Widget build(BuildContext context) => Consumer3<ConnectionStateUpdate,BleScannerState,BleStatus>(
-      builder: (_, mConnectionStateUpdate,bleScannerState,status, __) {
+  Widget build(BuildContext context) => Consumer4<ConnectionStateUpdate,BleScannerState,BleStatus,GpsProvider>(
+      builder: (_, mConnectionStateUpdate,bleScannerState,status,mpsProvider, __) {
         if( status == BleStatus.ready){
           //  print("bleScannerState.scanIsPause {${mblescanner.state}");
           if(bleScannerState.scanIsPause>1){///應該只會在藍芽關閉->啟動時才會遇到,app啟動時應該要會自動搜尋
@@ -289,7 +306,7 @@ class _MyHomePageState extends State<MyHomePage> {
 
         return Scaffold(
           appBar: AppBar(
-            //title: Text("${mConnectionStateUpdate.connectionState == DeviceConnectionState.connected}"),
+            title: Text("V20260204"),
             backgroundColor: Theme.of(context).colorScheme.inversePrimary,
             actions: [
               mConnectionStateUpdate.connectionState == DeviceConnectionState.connected
@@ -314,7 +331,8 @@ class _MyHomePageState extends State<MyHomePage> {
               //  print("scan stat ${bleScannerState.scanIsPause}///${bleScannerState.scanIsInProgress} ");
             status != BleStatus.ready
                 ? Center(
-                child: status == BleStatus.locationServicesDisabled
+                child:
+                status == BleStatus.locationServicesDisabled
                     ? const Column(mainAxisAlignment: MainAxisAlignment.center, children: [
                   Icon(
                     Icons.location_on,
@@ -322,7 +340,13 @@ class _MyHomePageState extends State<MyHomePage> {
                   ),
                   Flexible(child: Text("Please enable Locations on your device to continue."))
                 ])
-                    : const Column(mainAxisAlignment: MainAxisAlignment.center, children: [
+                    : mpsProvider.isHighAccuracy?const Column(mainAxisAlignment: MainAxisAlignment.center, children: [
+                  Icon(
+                    Icons.not_listed_location,
+                    color: Colors.blue,
+                  ),
+                  Flexible(child: Text("Please enable Locations high accuracy on your device to continue."))
+                ]):const Column(mainAxisAlignment: MainAxisAlignment.center, children: [
                   Icon(
                     Icons.bluetooth,
                     color: Colors.blue,

@@ -255,7 +255,13 @@ class _ConnectionTabPage extends State<ConnectionTabPage> with TickerProviderSta
         }
       }else {
         // res = parseIntList(event.sublist(4, event.length-3)).text;
+
         res = String.fromCharCodes(event.sublist(4, event.length-3));
+        if(opCode=="4-0"){
+          await Future.delayed(Duration(seconds: 1));
+          mBleDeviceConnector.disconnect(widget.connectid);
+          subscribeStream?.cancel();
+        }
       }
 
 ///7.9格式依照封包解析
@@ -1119,8 +1125,12 @@ class _ConnectionTabPage extends State<ConnectionTabPage> with TickerProviderSta
                           Row(
                             children: [
                               ElevatedButton(
-                                onPressed: (() {
+                                onPressed: (() async {
                                   mBleDeviceInteractor.writeCharacterisiticWithResponse(writecharacteristic, _cmdToBLE(4, 0, [0]));
+                                  await Future.delayed(Duration(seconds: 3));
+                                  mBleDeviceConnector.disconnect(widget.connectid);
+                                  subscribeStream?.cancel();
+
                                 }),
                                 child: Text("4.0 reboot"),
                               ),
